@@ -34,6 +34,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
+import android.os.PowerManager;
 
 import java.util.Locale;
 
@@ -79,12 +80,15 @@ public class NetworkManager extends CordovaPlugin {
     public static final String TYPE_4G = "4g";
     public static final String TYPE_NONE = "none";
 
+    public static final Integer CONNECTION_TIMEOUT_CHECK = 1000;
+
     private static final String LOG_TAG = "NetworkManager";
 
     private CallbackContext connectionCallbackContext;
 
     ConnectivityManager sockMan;
     BroadcastReceiver receiver;
+    BroadcastReceiver receiverIdleMode;
     private JSONObject lastInfo = null;
 
     /**
@@ -114,6 +118,32 @@ public class NetworkManager extends CordovaPlugin {
             webView.getContext().registerReceiver(this.receiver, intentFilter);
         }
 
+        IntentFilter intentFilterIdle = new IntentFilter();
+        intentFilterIdle.addAction(PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED);
+
+        if (this.receiverIdleMode == null) {
+          this.receiverIdleMode = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+              // (The null check is for the ARM Emulator, please use Intel Emulator for better results)
+              PowerManager pm = (PowerManager)context.getSystemService(Context.POWER_SERVICE​);
+              if(NetworkManager.this.webView != null) {
+                if (!pm.isDeviceIdleMode()) {
+                  NetworkInfo info = sockMan.getActiveNetworkInfo();
+                  if (info != null) {
+                    if (info.isAvailable()) {
+                      long startTime = System.currentTimeMillis(); //fetch starting time
+                      while(!info.isConnected()&&(System.currentTimeMillis()-startTime)<CONNECTION_TIMEOUT_CHECK)
+                      { info = sockMan.getActiveNetworkInfo(); }
+                    }
+                  }
+                  updateConnectionInfo(info);
+                }
+              }
+            }
+          };
+          webView.getContext().registerReceiver(this.receiverIdleMode, intentFilterIdle);
+        }
     }
 
     /**
